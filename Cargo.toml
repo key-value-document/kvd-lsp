@@ -1,0 +1,20 @@
+[package]
+name = "kvd-lsp"
+description = "Language server for the KVD config/data format"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
+
+[[bin]]
+name = "kvd-lsp"
+path = "src/main.rs"
+
+[dependencies]
+kvd-rs = "1.0.0"
+tower-lsp = "0.20.0"
+tokio = { version = "1.53.1", features = ["full"] }
+serde_json = "1.0.151"
+
+[patch.crates-io]
+kvd-rs = { path = "../kvd-rs" }
