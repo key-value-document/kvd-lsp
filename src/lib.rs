@@ -20,7 +20,10 @@ const BUILTINS: &[(&str, &str)] = &[
     ("float", "floating-point literal, e.g. 0.75 or 1e3"),
     ("bool", "the bare literals true / false"),
     ("str", "quoted string, or \"\"\" block for multi-line text"),
-    ("list", "dash-marker sequence; element type via a one-item list"),
+    (
+        "list",
+        "dash-marker sequence; element type via a one-item list",
+    ),
     ("map", "nested mapping; open map via the {} leaf"),
 ];
 
@@ -54,9 +57,7 @@ impl Backend {
         if diags.is_empty() {
             diags.extend(verify_diagnostics(&text, &uri).await);
         }
-        self.client
-            .publish_diagnostics(uri, diags, version)
-            .await;
+        self.client.publish_diagnostics(uri, diags, version).await;
     }
 }
 
@@ -67,12 +68,21 @@ pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
         Err(e) => {
             let line = e.line.saturating_sub(1) as u32;
             let start = e.col.saturating_sub(1) as u32;
-            let line_len = text.lines().nth(line as usize).map_or(0, |l| l.len() as u32);
+            let line_len = text
+                .lines()
+                .nth(line as usize)
+                .map_or(0, |l| l.len() as u32);
             let end = (start + 1).min(line_len.max(start));
             vec![Diagnostic {
                 range: Range {
-                    start: Position { line, character: start.min(line_len) },
-                    end: Position { line, character: end },
+                    start: Position {
+                        line,
+                        character: start.min(line_len),
+                    },
+                    end: Position {
+                        line,
+                        character: end,
+                    },
                 },
                 severity: Some(DiagnosticSeverity::ERROR),
                 code: Some(NumberOrString::String(e.kind.as_str().to_string())),
@@ -125,10 +135,7 @@ async fn verify_diagnostics(text: &str, uri: &Url) -> Vec<Diagnostic> {
     out
 }
 
-fn violation_diagnostic(
-    text: &str,
-    v: &kvd_rs::schema::Violation,
-) -> Diagnostic {
+fn violation_diagnostic(text: &str, v: &kvd_rs::schema::Violation) -> Diagnostic {
     Diagnostic {
         range: locate_path(text, &v.path),
         severity: Some(DiagnosticSeverity::ERROR),
@@ -141,8 +148,14 @@ fn violation_diagnostic(
 
 fn zero_range() -> Range {
     Range {
-        start: Position { line: 0, character: 0 },
-        end: Position { line: 0, character: 0 },
+        start: Position {
+            line: 0,
+            character: 0,
+        },
+        end: Position {
+            line: 0,
+            character: 0,
+        },
     }
 }
 
@@ -228,8 +241,14 @@ fn key_range(line: &str, line_no: u32) -> Range {
     };
     let len = line_key(line).map_or(0, |k| k.len() as u32);
     Range {
-        start: Position { line: line_no, character: start },
-        end: Position { line: line_no, character: start + len },
+        start: Position {
+            line: line_no,
+            character: start,
+        },
+        end: Position {
+            line: line_no,
+            character: start + len,
+        },
     }
 }
 
@@ -397,10 +416,10 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        self.docs.write().await.insert(
-            params.text_document.uri.clone(),
-            params.text_document.text,
-        );
+        self.docs
+            .write()
+            .await
+            .insert(params.text_document.uri.clone(), params.text_document.text);
         self.diagnose(params.text_document.uri, None).await;
     }
 
@@ -410,11 +429,8 @@ impl LanguageServer for Backend {
                 .write()
                 .await
                 .insert(params.text_document.uri.clone(), change.text);
-            self.diagnose(
-                params.text_document.uri,
-                Some(params.text_document.version),
-            )
-            .await;
+            self.diagnose(params.text_document.uri, Some(params.text_document.version))
+                .await;
         }
     }
 
@@ -437,13 +453,15 @@ impl LanguageServer for Backend {
         let pos = params.text_document_position.position;
         let text = self.get_text(uri).await.unwrap_or_default();
         let line_text = text.lines().nth(pos.line as usize).unwrap_or("");
-        let before: String = line_text
-            .chars()
-            .take(pos.character as usize)
-            .collect();
+        let before: String = line_text.chars().take(pos.character as usize).collect();
 
         let mut items = Vec::new();
-        if before.rsplit([':', ' ']).next().is_some_and(|w| w == "type") || before.contains("type:") {
+        if before
+            .rsplit([':', ' '])
+            .next()
+            .is_some_and(|w| w == "type")
+            || before.contains("type:")
+        {
             for (name, doc) in BUILTINS {
                 items.push(CompletionItem {
                     label: name.to_string(),
@@ -480,10 +498,7 @@ impl LanguageServer for Backend {
                     push(leaf, CompletionItemKind::FIELD, k);
                 }
             }
-            if let Some(schema) = doc
-                .as_map()
-                .and_then(|m| m.get("__schema__"))
-            {
+            if let Some(schema) = doc.as_map().and_then(|m| m.get("__schema__")) {
                 let mut skeys = Vec::new();
                 collect_keys(schema, "", &mut skeys);
                 for k in &skeys {
@@ -526,7 +541,10 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let lines: Vec<&str> = text.lines().collect();
-        let path = path_at_lines(&lines, (pos.line as usize).min(lines.len().saturating_sub(1)));
+        let path = path_at_lines(
+            &lines,
+            (pos.line as usize).min(lines.len().saturating_sub(1)),
+        );
         let mut info = lookup_path(&doc, &path).map(node_help);
         if info.is_none() {
             let short = path.last().cloned().unwrap_or_else(|| word.clone());
@@ -537,9 +555,7 @@ impl LanguageServer for Backend {
         }
         match info {
             Some(i) => Ok(Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(format!(
-                    "`{word}`: {i}"
-                ))),
+                contents: HoverContents::Scalar(MarkedString::String(format!("`{word}`: {i}"))),
                 range: None,
             })),
             None => Ok(None),
@@ -565,7 +581,10 @@ impl LanguageServer for Backend {
         }
         Ok(Some(vec![TextEdit {
             range: Range {
-                start: Position { line: 0, character: 0 },
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
                 end: end_position(&text),
             },
             new_text: pretty,
@@ -601,10 +620,7 @@ impl LanguageServer for Backend {
                     })
                     .unwrap_or_default();
                 if let Some(line) = find_path_line(&data_text, &path) {
-                    let range = key_range(
-                        data_text.lines().nth(line as usize).unwrap_or(""),
-                        line,
-                    );
+                    let range = key_range(data_text.lines().nth(line as usize).unwrap_or(""), line);
                     return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                         uri: data_uri,
                         range,
@@ -615,14 +631,9 @@ impl LanguageServer for Backend {
         }
         if let Some(schema_text) = sibling_schema_text(uri).await {
             if let Some(line) = find_path_line(&schema_text, &path) {
-                let range = key_range(
-                    schema_text.lines().nth(line as usize).unwrap_or(""),
-                    line,
-                );
-                let schema_uri = Url::parse(
-                    &uri.to_string().replace(".kvd", ".schema.kvd"),
-                )
-                .unwrap_or_else(|_| uri.clone());
+                let range = key_range(schema_text.lines().nth(line as usize).unwrap_or(""), line);
+                let schema_uri = Url::parse(&uri.to_string().replace(".kvd", ".schema.kvd"))
+                    .unwrap_or_else(|_| uri.clone());
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri: schema_uri,
                     range,

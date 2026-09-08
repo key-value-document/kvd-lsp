@@ -31,7 +31,12 @@ impl Session {
             .expect("spawn kvd-lsp");
         let stdin = child.stdin.take().expect("stdin");
         let stdout = child.stdout.take().expect("stdout");
-        Self { child, stdin, reader: BufReader::new(stdout), next_id: 1 }
+        Self {
+            child,
+            stdin,
+            reader: BufReader::new(stdout),
+            next_id: 1,
+        }
     }
 
     fn send(&mut self, body: &Value) {
@@ -81,10 +86,7 @@ impl Session {
     }
 
     fn initialize(&mut self) {
-        let resp = self.request(
-            "initialize",
-            json!({"processId":null,"capabilities":{}}),
-        );
+        let resp = self.request("initialize", json!({"processId":null,"capabilities":{}}));
         assert!(resp.get("result").is_some(), "initialize failed: {resp}");
         self.notify("initialized", json!({}));
     }
@@ -100,9 +102,13 @@ impl Session {
     fn next_diagnostics(&mut self) -> Value {
         let deadline = Instant::now() + Duration::from_secs(5);
         loop {
-            assert!(Instant::now() < deadline, "timed out waiting for diagnostics");
+            assert!(
+                Instant::now() < deadline,
+                "timed out waiting for diagnostics"
+            );
             let msg = self.read_msg(Duration::from_secs(5)).expect("no message");
-            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics") {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("textDocument/publishDiagnostics")
+            {
                 return msg;
             }
         }
@@ -112,15 +118,24 @@ impl Session {
         let id = self.next_id;
         self.next_id += 1;
         self.send(&json!({"jsonrpc":"2.0","id":id,"method":"shutdown"}));
-        let resp = self.read_msg(Duration::from_secs(5)).expect("no shutdown response");
-        assert_eq!(resp.get("result"), Some(&Value::Null), "shutdown failed: {resp}");
+        let resp = self
+            .read_msg(Duration::from_secs(5))
+            .expect("no shutdown response");
+        assert_eq!(
+            resp.get("result"),
+            Some(&Value::Null),
+            "shutdown failed: {resp}"
+        );
         self.notify("exit", Value::Null);
         let _ = self.child.wait();
     }
 }
 
 fn diags_for(msg: &Value) -> &[Value] {
-    msg.pointer("/params/diagnostics").and_then(|d| d.as_array()).map(|a| a.as_slice()).unwrap_or(&[])
+    msg.pointer("/params/diagnostics")
+        .and_then(|d| d.as_array())
+        .map(|a| a.as_slice())
+        .unwrap_or(&[])
 }
 
 #[test]
@@ -131,8 +146,16 @@ fn parse_error_produces_diagnostic() {
     let msg = s.next_diagnostics();
     let diags = diags_for(&msg);
     assert_eq!(diags.len(), 1);
-    assert_eq!(diags[0].pointer("/range/start/line").and_then(|v| v.as_u64()), Some(0));
-    assert_eq!(diags[0].pointer("/source").and_then(|v| v.as_str()), Some("kvd"));
+    assert_eq!(
+        diags[0]
+            .pointer("/range/start/line")
+            .and_then(|v| v.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        diags[0].pointer("/source").and_then(|v| v.as_str()),
+        Some("kvd")
+    );
     s.shutdown();
 }
 
@@ -157,7 +180,10 @@ fn embedded_schema_violation_reported() {
     let msg = s.next_diagnostics();
     let diags = diags_for(&msg);
     assert_eq!(diags.len(), 1);
-    assert_eq!(diags[0].pointer("/code").and_then(|v| v.as_str()), Some("schema-violation"));
+    assert_eq!(
+        diags[0].pointer("/code").and_then(|v| v.as_str()),
+        Some("schema-violation")
+    );
     s.shutdown();
 }
 
@@ -171,7 +197,11 @@ fn sibling_schema_violation_reported() {
     s.initialize();
     s.did_open(&uri, "port: \"bad\"\n");
     let msg = s.next_diagnostics();
-    assert_eq!(diags_for(&msg).len(), 1, "expected sibling violation: {msg}");
+    assert_eq!(
+        diags_for(&msg).len(),
+        1,
+        "expected sibling violation: {msg}"
+    );
     s.shutdown();
 }
 
@@ -193,8 +223,14 @@ fn hover_completion_formatting_definition() {
         "textDocument/hover",
         json!({"textDocument":{"uri":uri},"position":{"line":0,"character":1}}),
     );
-    let contents = hover.pointer("/result/contents").cloned().unwrap_or(Value::Null);
-    assert!(contents.to_string().contains("port"), "hover missing key: {hover}");
+    let contents = hover
+        .pointer("/result/contents")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert!(
+        contents.to_string().contains("port"),
+        "hover missing key: {hover}"
+    );
 
     let comp = s.request(
         "textDocument/completion",
@@ -206,17 +242,27 @@ fn hover_completion_formatting_definition() {
         .cloned()
         .unwrap_or_default()
         .iter()
-        .filter_map(|i| i.pointer("/label").and_then(|l| l.as_str()).map(str::to_string))
+        .filter_map(|i| {
+            i.pointer("/label")
+                .and_then(|l| l.as_str())
+                .map(str::to_string)
+        })
         .collect();
     for want in ["int", "port", "true"] {
-        assert!(labels.iter().any(|l| l == want), "completion missing {want}: {labels:?}");
+        assert!(
+            labels.iter().any(|l| l == want),
+            "completion missing {want}: {labels:?}"
+        );
     }
 
     let fmt = s.request(
         "textDocument/formatting",
         json!({"textDocument":{"uri":uri},"options":{"tabSize":2,"insertSpaces":true}}),
     );
-    assert!(fmt.pointer("/result").is_some(), "no formatting result: {fmt}");
+    assert!(
+        fmt.pointer("/result").is_some(),
+        "no formatting result: {fmt}"
+    );
 
     let def = s.request(
         "textDocument/definition",
