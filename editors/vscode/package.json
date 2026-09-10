@@ -1,0 +1,60 @@
+{
+    "activationEvents": [
+        "onLanguage:kvd"
+    ],
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "configuration": {
+            "properties": {
+                "kvd.serverPath": {
+                    "default": "",
+                    "description": "Absolute path to the kvd-lsp binary. Empty = use the debug build next to this extension.",
+                    "type": "string"
+                }
+            },
+            "title": "KVD",
+            "type": "object"
+        },
+        "grammars": [
+            {
+                "language": "kvd",
+                "path": "./syntaxes/kvd.tmGrammar.json",
+                "scopeName": "source.kvd"
+            }
+        ],
+        "languages": [
+            {
+                "aliases": [
+                    "KVD"
+                ],
+                "extensions": [
+                    ".kvd"
+                ],
+                "id": "kvd"
+            }
+        ]
+    },
+    "dependencies": {
+        "vscode-languageclient": "^9.0.1"
+    },
+    "description": "KVD language support (diagnostics, completion, hover, formatting, go to definition) via kvd-lsp",
+    "devDependencies": {
+        "@types/node": "^20.0.0",
+        "@types/vscode": "^1.80.0",
+        "typescript": "^5.0.0"
+    },
+    "displayName": "KVD",
+    "engines": {
+        "vscode": "^1.80.0"
+    },
+    "main": "./out/extension.js",
+    "name": "kvd-vscode",
+    "publisher": "kvd",
+    "scripts": {
+        "compile": "tsc -p ./",
+        "watch": "tsc -watch -p ./"
+    },
+    "version": "0.1.0"
+}

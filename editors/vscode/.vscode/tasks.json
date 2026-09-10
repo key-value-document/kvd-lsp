@@ -1,0 +1,19 @@
+{
+    "tasks": [
+        {
+            "group": {
+                "isDefault": true,
+                "kind": "build"
+            },
+            "isBackground": false,
+            "label": "npm: compile",
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "problemMatcher": "$tsc",
+            "script": "compile",
+            "type": "npm"
+        }
+    ],
+    "version": "2.0.0"
+}

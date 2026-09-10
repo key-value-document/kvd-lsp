@@ -1,0 +1,18 @@
+{
+    "name": "KVD",
+    "patterns": [
+        {
+            "captures": {
+                "1": {
+                    "name": "entity.name.tag.kvd"
+                }
+            },
+            "match": "^\\s*([A-Za-z0-9_-]+)(?=:)"
+        },
+        {
+            "match": "\"(\\\\\\\\.|[^\"\\\\\\\\])*\"",
+            "name": "string.quoted.double.kvd"
+        }
+    ],
+    "scopeName": "source.kvd"
+}
