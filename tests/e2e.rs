@@ -130,7 +130,11 @@ impl Session {
             Some(&Value::Null),
             "shutdown failed: {resp}"
         );
-        self.notify("exit", Value::Null);
+        self.send(&json!({"jsonrpc":"2.0","method":"exit"}));
+        // tower-lsp keeps serving after `exit`; don't wait forever.
+        // Give it a beat to flush, then reap by force.
+        std::thread::sleep(Duration::from_millis(200));
+        let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
