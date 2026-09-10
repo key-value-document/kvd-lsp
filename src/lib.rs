@@ -24,7 +24,7 @@ const BUILTINS: &[(&str, &str)] = &[
         "list",
         "dash-marker sequence; element type via a one-item list",
     ),
-    ("map", "nested mapping; open map via the {} leaf"),
+    ("dict", "equals-marker mapping with opaque quoted keys"),
 ];
 
 const SCALAR_KEYWORDS: &[(&str, &str)] = &[
@@ -185,8 +185,9 @@ pub fn locate_path(text: &str, path: &str) -> Range {
     zero_range()
 }
 
-/// Dotted map-key path of the entry on `line_idx`, via the indent stack.
-/// List markers (`- `) count as one extra level and contribute no segment.
+/// Dotted key path of the entry on `line_idx`, via the indent stack.
+/// List markers (`- `) and dict markers (`= `) count as one extra level
+/// and contribute no segment of their own.
 pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
     let mut stack: Vec<(usize, String)> = Vec::new();
     for line in lines.iter().take(line_idx + 1) {
@@ -195,6 +196,10 @@ pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
         let mut eff = indent;
         if content.starts_with("- ") || content == "-" {
             content = content.strip_prefix("- ").unwrap_or("");
+            eff += 2;
+        }
+        if content.starts_with("= ") || content == "=" {
+            content = content.strip_prefix("= ").unwrap_or("");
             eff += 2;
         }
         let Some(head) = key_before_colon(content) else {
@@ -206,6 +211,8 @@ pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
         while stack.last().is_some_and(|(d, _)| *d >= eff) {
             stack.pop();
         }
+        // Dict keys are always quoted single segments, so split_key_head
+        // yields the opaque key unsplit; dotted node paths expand here.
         for key in keys {
             stack.push((eff, key));
         }
@@ -293,23 +300,34 @@ fn finish_segment(raw: &str, quoted: bool) -> Option<String> {
     }
 }
 
-/// Bare key on a line, ignoring any list marker.
+/// Bare key on a line, ignoring any list or dict marker.
 fn line_key(line: &str) -> Option<String> {
-    let mut content = line.trim();
-    if content.starts_with("- ") || content == "-" {
-        content = content.strip_prefix("- ").unwrap_or("");
+    strip_markers(line.trim()).and_then(key_before_colon)
+}
+
+/// Line content with any leading `- ` / `= ` markers removed.
+fn strip_markers(content: &str) -> Option<&str> {
+    let mut c = content;
+    if c.starts_with("- ") || c == "-" {
+        c = c.strip_prefix("- ").unwrap_or("");
     }
-    key_before_colon(content)
+    if c.starts_with("= ") || c == "=" {
+        c = c.strip_prefix("= ").unwrap_or("");
+    }
+    Some(c)
 }
 
 /// Range covering the key text on a source line.
 fn key_range(line: &str, line_no: u32) -> Range {
-    let start = line.find(|c: char| c != ' ' && c != '-').unwrap_or(0) as u32;
-    let start = if line.trim_start().starts_with("- ") {
-        start + 2
-    } else {
-        start
-    };
+    let trimmed = line.trim_start();
+    let mut start = (line.len() - trimmed.len()) as u32;
+    let mut rest = trimmed;
+    for marker in ["- ", "= "] {
+        if rest.starts_with(marker) {
+            rest = &rest[2..];
+            start += 2;
+        }
+    }
     let len = line_key(line).map_or(0, |k| k.len() as u32);
     Range {
         start: Position {
@@ -377,7 +395,7 @@ async fn sibling_data_uri(uri: &Url) -> Option<Url> {
 /// All dotted key paths in a node tree, skipping metakeys.
 pub fn collect_keys(node: &kvd_rs::value::Node, prefix: &str, out: &mut Vec<String>) {
     match node {
-        kvd_rs::value::Node::Map(m) => {
+        kvd_rs::value::Node::Map(m) | kvd_rs::value::Node::Dict(m) => {
             for (k, v) in m.iter() {
                 if kvd_rs::grammar::is_metakey(k) {
                     continue;
@@ -410,11 +428,13 @@ pub fn lookup_path<'a>(
     let mut cur = doc;
     for seg in path {
         match cur {
-            kvd_rs::value::Node::Map(m) => cur = m.get(seg)?,
+            kvd_rs::value::Node::Map(m) | kvd_rs::value::Node::Dict(m) => cur = m.get(seg)?,
             kvd_rs::value::Node::List(items) => {
                 cur = items.first()?;
                 match cur {
-                    kvd_rs::value::Node::Map(m) => cur = m.get(seg)?,
+                    kvd_rs::value::Node::Map(m) | kvd_rs::value::Node::Dict(m) => {
+                        cur = m.get(seg)?
+                    }
                     _ => return None,
                 }
             }
@@ -429,6 +449,7 @@ fn node_help(node: &kvd_rs::value::Node) -> String {
     match node {
         kvd_rs::value::Node::Scalar(s) => format!("{}: {}", s.shape, s.text),
         kvd_rs::value::Node::Map(m) => format!("map with {} keys", m.len()),
+        kvd_rs::value::Node::Dict(m) => format!("dict with {} keys", m.len()),
         kvd_rs::value::Node::List(l) => format!("list with {} items", l.len()),
         _ => "value".to_string(),
     }
@@ -628,9 +649,7 @@ impl LanguageServer for Backend {
             Some(i) => {
                 let show = path.last().unwrap_or(&word);
                 Ok(Some(Hover {
-                    contents: HoverContents::Scalar(MarkedString::String(format!(
-                        "`{show}`: {i}"
-                    ))),
+                    contents: HoverContents::Scalar(MarkedString::String(format!("`{show}`: {i}"))),
                     range: None,
                 }))
             }
