@@ -55,7 +55,11 @@ impl Session {
             }
             let mut line = String::new();
             // BufRead blocks; overall test timeout bounds a hang.
-            self.reader.read_line(&mut line).ok()?;
+            // EOF (0 bytes) means the child died: stop instead of spinning.
+            let n = self.reader.read_line(&mut line).ok()?;
+            if n == 0 {
+                return None;
+            }
             if line.trim().is_empty() {
                 if len.is_some() {
                     break;
