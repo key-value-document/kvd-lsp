@@ -197,26 +197,97 @@ pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
             content = content.strip_prefix("- ").unwrap_or("");
             eff += 2;
         }
-        let Some(key) = key_before_colon(content) else {
+        let Some(head) = key_before_colon(content) else {
+            continue;
+        };
+        let Some(keys) = split_key_head(&head) else {
             continue;
         };
         while stack.last().is_some_and(|(d, _)| *d >= eff) {
             stack.pop();
         }
-        stack.push((eff, key));
+        for key in keys {
+            stack.push((eff, key));
+        }
     }
     stack.into_iter().map(|(_, k)| k).collect()
 }
 
-/// Key part before the first `:` when it is a valid key or metakey.
+/// Raw key head before the first `:` outside quotes (`a.b.c`, `"a.b"`,
+/// `__schema__`). Dotted heads are accepted segment-wise since dots are
+/// path separators, not key characters (spec §3).
 pub fn key_before_colon(content: &str) -> Option<String> {
-    let (head, _) = content.split_once(':')?;
-    let head = head.trim();
-    if head.is_empty() {
+    let head = head_before_colon(content)?;
+    split_key_head(head)?; // validate only; keep raw spelling for ranges
+    Some(head.to_string())
+}
+
+/// Text before the first `:` that is not inside quotes.
+fn head_before_colon(content: &str) -> Option<&str> {
+    let mut in_quote: Option<char> = None;
+    for (i, c) in content.char_indices() {
+        if let Some(q) = in_quote {
+            if c == q {
+                in_quote = None;
+            }
+        } else if c == '"' || c == '\'' {
+            in_quote = Some(c);
+        } else if c == ':' {
+            let head = content[..i].trim();
+            return if head.is_empty() { None } else { Some(head) };
+        }
+    }
+    None
+}
+
+/// Split a key head on `.` separators outside quotes, unquoting quoted
+/// segments. Each bare segment must be a valid key or metakey.
+fn split_key_head(head: &str) -> Option<Vec<String>> {
+    let mut segs = Vec::new();
+    let mut cur = String::new();
+    let mut in_quote: Option<char> = None;
+    let mut quoted = false;
+    for c in head.chars() {
+        if let Some(q) = in_quote {
+            cur.push(c);
+            if c == q {
+                in_quote = None;
+            }
+        } else if c == '"' || c == '\'' {
+            if cur.is_empty() {
+                quoted = true;
+            }
+            in_quote = Some(c);
+            cur.push(c);
+        } else if c == '.' {
+            if cur.is_empty() {
+                return None;
+            }
+            segs.push(finish_segment(&cur, quoted)?);
+            cur.clear();
+            quoted = false;
+        } else {
+            cur.push(c);
+        }
+    }
+    if in_quote.is_some() || cur.is_empty() {
         return None;
     }
-    if kvd_rs::grammar::is_key(head) || kvd_rs::grammar::is_metakey(head) {
-        Some(head.to_string())
+    segs.push(finish_segment(&cur, quoted)?);
+    Some(segs)
+}
+
+/// Unquote a quoted segment, or validate a bare one.
+fn finish_segment(raw: &str, quoted: bool) -> Option<String> {
+    if quoted {
+        let b = raw.as_bytes();
+        if b.len() >= 2 && (b[0] == b'"' || b[0] == b'\'') && b[b.len() - 1] == b[0] {
+            Some(raw[1..raw.len() - 1].to_string())
+        } else {
+            None
+        }
+    } else if kvd_rs::grammar::is_key(raw) || kvd_rs::grammar::is_metakey(raw) {
+        Some(raw.to_string())
     } else {
         None
     }
@@ -275,7 +346,7 @@ pub fn word_at(text: &str, pos: Position) -> Option<String> {
 }
 
 fn is_word_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_' || c == '-'
+    c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.'
 }
 
 /// Sibling `<name>.schema.kvd` for a data file, when it exists on disk.
@@ -554,10 +625,15 @@ impl LanguageServer for Backend {
                 .map(node_help);
         }
         match info {
-            Some(i) => Ok(Some(Hover {
-                contents: HoverContents::Scalar(MarkedString::String(format!("`{word}`: {i}"))),
-                range: None,
-            })),
+            Some(i) => {
+                let show = path.last().unwrap_or(&word);
+                Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(format!(
+                        "`{show}`: {i}"
+                    ))),
+                    range: None,
+                }))
+            }
             None => Ok(None),
         }
     }
