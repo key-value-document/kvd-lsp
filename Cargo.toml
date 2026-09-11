@@ -5,16 +5,19 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85.0"
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/key-value-document/kvd-lsp"
+keywords = ["config", "data-format", "language-server", "lsp"]
+categories = ["development-tools", "config"]
+exclude = [".github/**", ".gitignore", "editors/**", "target/**"]
 
 [[bin]]
 name = "kvd-lsp"
 path = "src/main.rs"
 
 [dependencies]
-kvd-rs = "1.0.0"
+kvd-rs = "1.1.0"
 tower-lsp = "0.20.0"
 tokio = { version = "1.53.1", features = ["full"] }
 serde_json = "1.0.151"
 
-[patch.crates-io]
-kvd-rs = { path = "../kvd-rs" }

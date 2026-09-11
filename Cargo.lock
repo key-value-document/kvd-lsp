@@ -309,6 +309,8 @@ dependencies = [
 [[package]]
 name = "kvd-rs"
 version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18552e73c7bfa689ed8875307543f41a75f5365eb4fd029c298dddc3d5defa12"
 dependencies = [
  "regex",
 ]
