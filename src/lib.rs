@@ -36,15 +36,24 @@ const SCALAR_KEYWORDS: &[(&str, &str)] = &[
 /// Descriptor-block keys for schema files (spec §10). A schema leaf block
 /// is a descriptor iff it contains a `type` key.
 const DESCRIPTOR_KEYS: &[(&str, &str)] = &[
-    ("type", "required: bare type name (int, float, bool, str, dict, list)"),
+    (
+        "type",
+        "required: bare type name (int, float, bool, str, dict, list)",
+    ),
     ("optional", "optional: true allows absence or null"),
     ("description", "ignored documentation string for the field"),
-    ("deprecated", "ignored block: reason/since strings marking the field deprecated"),
+    (
+        "deprecated",
+        "ignored block: reason/since strings marking the field deprecated",
+    ),
     (
         "element",
         "item type for type: list (required), value type for type: dict (optional)",
     ),
-    ("validation", "optional block of constraint keys (min, max, pattern, ...)"),
+    (
+        "validation",
+        "optional block of constraint keys (min, max, pattern, ...)",
+    ),
 ];
 
 /// Constraint keys for a `validation` block (spec §10).

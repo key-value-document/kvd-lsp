@@ -123,8 +123,5 @@ fn schema_uri_detection() {
 #[test]
 fn path_at_lines_tracks_validation_block() {
     let lines = ["port:", "  type: int", "  validation:", "    min: 0"];
-    assert_eq!(
-        path_at_lines(&lines, 3),
-        vec!["port", "validation", "min"]
-    );
+    assert_eq!(path_at_lines(&lines, 3), vec!["port", "validation", "min"]);
 }
