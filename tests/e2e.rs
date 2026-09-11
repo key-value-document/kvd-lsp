@@ -178,19 +178,14 @@ fn clean_doc_has_no_diagnostics() {
 }
 
 #[test]
-fn embedded_schema_violation_reported() {
+fn no_sibling_schema_means_no_schema_diagnostics() {
     let mut s = Session::start();
     s.initialize();
-    s.did_open(
-        "file:///tmp/lsp-test-emb.kvd",
-        "port: \"nope\"\n__schema__:\n  port:\n    type: int\n",
-    );
+    s.did_open("file:///tmp/lsp-test-noschema.kvd", "port: \"nope\"\n");
     let msg = s.next_diagnostics();
-    let diags = diags_for(&msg);
-    assert_eq!(diags.len(), 1);
-    assert_eq!(
-        diags[0].pointer("/code").and_then(|v| v.as_str()),
-        Some("schema-violation")
+    assert!(
+        diags_for(&msg).is_empty(),
+        "unexpected diagnostics without a schema file: {msg}"
     );
     s.shutdown();
 }

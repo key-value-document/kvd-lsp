@@ -3,8 +3,8 @@
 //! Diagnostics come from [`kvd_rs::deserialize`]; schema checks from
 //! [`kvd_rs::schema`]; formatting round-trips through
 //! [`kvd_rs::serialize`]. Schema lookup is by convention: a data file
-//! `app.kvd` is checked against its embedded `__schema__` block and, when
-//! present, the sibling `app.schema.kvd` file.
+//! `app.kvd` is checked against the sibling `app.schema.kvd` file when it
+//! exists. Schemas are never embedded in data documents.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -94,24 +94,13 @@ pub fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
     }
 }
 
-/// Schema diagnostics: embedded `__schema__` plus the sibling
-/// `<name>.schema.kvd` file when it exists.
+/// Schema diagnostics: the sibling `<name>.schema.kvd` file when it
+/// exists. Schemas are never embedded in data documents (spec §2).
 async fn verify_diagnostics(text: &str, uri: &Url) -> Vec<Diagnostic> {
-    let doc = match kvd_rs::deserialize::from_str(text) {
-        Ok(d) => d,
-        Err(_) => return Vec::new(),
-    };
-    let mut out = Vec::new();
-    match kvd_rs::schema::verify_embedded(&doc) {
-        Ok(()) => {}
-        Err(kvd_rs::schema::VerifyError::Violations(vs))
-        | Err(kvd_rs::schema::VerifyError::SchemaMalformed(vs)) => {
-            for v in &vs {
-                out.push(violation_diagnostic(text, v));
-            }
-        }
-        Err(_) => {}
+    if kvd_rs::deserialize::from_str(text).is_err() {
+        return Vec::new();
     }
+    let mut out = Vec::new();
     if let Some(schema_text) = sibling_schema_text(uri).await {
         match kvd_rs::schema::verify_from_str(text, &schema_text) {
             Ok(()) => {}
@@ -220,9 +209,9 @@ pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
     stack.into_iter().map(|(_, k)| k).collect()
 }
 
-/// Raw key head before the first `:` outside quotes (`a.b.c`, `"a.b"`,
-/// `__schema__`). Dotted heads are accepted segment-wise since dots are
-/// path separators, not key characters (spec §3).
+/// Raw key head before the first `:` outside quotes (`a.b.c`, `"a.b"`).
+/// Dotted heads are accepted segment-wise since dots are path separators,
+/// not key characters (spec §2). There is no reserved namespace.
 pub fn key_before_colon(content: &str) -> Option<String> {
     let head = head_before_colon(content)?;
     split_key_head(head)?; // validate only; keep raw spelling for ranges
@@ -248,7 +237,7 @@ fn head_before_colon(content: &str) -> Option<&str> {
 }
 
 /// Split a key head on `.` separators outside quotes, unquoting quoted
-/// segments. Each bare segment must be a valid key or metakey.
+/// segments. Each bare segment must be a valid key.
 fn split_key_head(head: &str) -> Option<Vec<String>> {
     let mut segs = Vec::new();
     let mut cur = String::new();
@@ -293,7 +282,7 @@ fn finish_segment(raw: &str, quoted: bool) -> Option<String> {
         } else {
             None
         }
-    } else if kvd_rs::grammar::is_key(raw) || kvd_rs::grammar::is_metakey(raw) {
+    } else if kvd_rs::grammar::is_key(raw) {
         Some(raw.to_string())
     } else {
         None
@@ -392,14 +381,11 @@ async fn sibling_data_uri(uri: &Url) -> Option<Url> {
     Url::from_file_path(data_path).ok()
 }
 
-/// All dotted key paths in a node tree, skipping metakeys.
+/// All dotted key paths in a node tree.
 pub fn collect_keys(node: &kvd_rs::value::Node, prefix: &str, out: &mut Vec<String>) {
     match node {
         kvd_rs::value::Node::Map(m) | kvd_rs::value::Node::Dict(m) => {
             for (k, v) in m.iter() {
-                if kvd_rs::grammar::is_metakey(k) {
-                    continue;
-                }
                 let full = if prefix.is_empty() {
                     k.to_string()
                 } else {
@@ -590,15 +576,6 @@ impl LanguageServer for Backend {
                     push(leaf, CompletionItemKind::FIELD, k);
                 }
             }
-            if let Some(schema) = doc.as_map().and_then(|m| m.get("__schema__")) {
-                let mut skeys = Vec::new();
-                collect_keys(schema, "", &mut skeys);
-                for k in &skeys {
-                    if let Some(leaf) = k.split('.').next_back() {
-                        push(leaf, CompletionItemKind::FIELD, k);
-                    }
-                }
-            }
         }
         if let Some(schema_text) = sibling_schema_text(uri).await {
             if let Ok(schema) = kvd_rs::deserialize::from_str(&schema_text) {
@@ -731,21 +708,6 @@ impl LanguageServer for Backend {
                     .unwrap_or_else(|_| uri.clone());
                 return Ok(Some(GotoDefinitionResponse::Scalar(Location {
                     uri: schema_uri,
-                    range,
-                })));
-            }
-        }
-        if let Ok(doc) = kvd_rs::deserialize::from_str(&text) {
-            if doc.as_map().and_then(|m| m.get("__schema__")).is_some()
-                && find_path_line(&text, &path).is_some_and(|l| l != pos.line)
-            {
-                let schema_line = find_path_line(&text, &path).unwrap_or(pos.line);
-                let range = key_range(
-                    text.lines().nth(schema_line as usize).unwrap_or(""),
-                    schema_line,
-                );
-                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
-                    uri: uri.clone(),
                     range,
                 })));
             }

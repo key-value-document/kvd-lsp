@@ -19,12 +19,10 @@ The server speaks LSP over stdin/stdout. Configure your editor to launch
 ## Features
 
 - Diagnostics: parse errors with line/col ranges, plus schema violations
-  from the embedded `__schema__` block and the sibling `<name>.schema.kvd`
-  file when present.
+  from the sibling `<name>.schema.kvd` file when present.
 - Completion: builtin type names (`int`, `float`, `bool`, `str`, `list`,
-  `map`), scalar keywords (`true`, `false`, `null`), and document keys
-  (data, embedded schema, sibling schema).
-- Hover: one-line help for builtins; scalar shape/text or map/list size
+  `dict`), scalar keywords (`true`, `false`, `null`), and document keys.
+- Hover: one-line help for builtins; scalar shape/text or dict/list size
   for document keys.
 - Formatting: whole-document rewrite via `kvd_rs::serialize::to_string`.
 - Go to definition: data file key jumps to the sibling schema key, and
@@ -34,7 +32,7 @@ The server speaks LSP over stdin/stdout. Configure your editor to launch
 
 By convention only, no configuration:
 
-- `app.kvd` is checked against its embedded `__schema__` block and, when
-  it exists on disk, the sibling `app.schema.kvd` file.
+- `app.kvd` is checked against the sibling `app.schema.kvd` file when it
+  exists on disk.
 - A `*.schema.kvd` file is never checked against a further sibling; its
   go-to-definition target is the sibling data file.

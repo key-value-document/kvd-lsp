@@ -80,13 +80,12 @@ fn locate_path_finds_key_range() {
 }
 
 #[test]
-fn collect_keys_skips_metakeys() {
-    let doc =
-        kvd_rs::deserialize::from_str("port: 8080\n__schema__:\n  port:\n    type: int\n").unwrap();
+fn collect_keys_lists_all_keys() {
+    let doc = kvd_rs::deserialize::from_str("port: 8080\nhost: \"x\"\n").unwrap();
     let mut keys = Vec::new();
     collect_keys(&doc, "", &mut keys);
     assert!(keys.contains(&"port".to_string()));
-    assert!(!keys.iter().any(|k| k.contains("__schema__")));
+    assert!(keys.contains(&"host".to_string()));
 }
 
 #[test]
