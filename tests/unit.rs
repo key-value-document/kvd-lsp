@@ -1,8 +1,8 @@
 use kvd_lsp::{
-    collect_keys, find_path_line, key_before_colon, locate_path, lookup_path, parse_diagnostics,
-    path_at_lines, word_at,
+    collect_keys, find_path_line, is_schema_uri, key_before_colon, locate_path, lookup_path,
+    parse_diagnostics, path_at_lines, word_at,
 };
-use tower_lsp::lsp_types::{DiagnosticSeverity, Position};
+use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Url};
 
 #[test]
 fn parse_error_gives_one_diagnostic() {
@@ -110,4 +110,21 @@ fn find_path_line_matches_indent_path() {
 fn key_before_colon_rejects_bare_values() {
     assert!(key_before_colon("port").is_none());
     assert_eq!(key_before_colon("port: 8080").as_deref(), Some("port"));
+}
+
+#[test]
+fn schema_uri_detection() {
+    let schema = Url::parse("file:///tmp/app.schema.kvd").unwrap();
+    let data = Url::parse("file:///tmp/app.kvd").unwrap();
+    assert!(is_schema_uri(&schema));
+    assert!(!is_schema_uri(&data));
+}
+
+#[test]
+fn path_at_lines_tracks_validation_block() {
+    let lines = ["port:", "  type: int", "  validation:", "    min: 0"];
+    assert_eq!(
+        path_at_lines(&lines, 3),
+        vec!["port", "validation", "min"]
+    );
 }

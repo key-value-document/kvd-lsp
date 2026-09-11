@@ -33,6 +33,35 @@ const SCALAR_KEYWORDS: &[(&str, &str)] = &[
     ("null", "absent value; allowed only under optional: true"),
 ];
 
+/// Descriptor-block keys for schema files (spec §10). A schema leaf block
+/// is a descriptor iff it contains a `type` key.
+const DESCRIPTOR_KEYS: &[(&str, &str)] = &[
+    ("type", "required: bare type name (int, float, bool, str, dict, list)"),
+    ("optional", "optional: true allows absence or null"),
+    (
+        "element",
+        "item type for type: list (required), value type for type: dict (optional)",
+    ),
+    ("validation", "optional block of constraint keys (min, max, pattern, ...)"),
+];
+
+/// Constraint keys for a `validation` block (spec §10).
+const VALIDATION_KEYS: &[(&str, &str)] = &[
+    ("min", "int/float: value >= min"),
+    ("max", "int/float: value <= max"),
+    ("exclusive_min", "int/float: value > exclusive_min"),
+    ("exclusive_max", "int/float: value < exclusive_max"),
+    ("min_len", "str/list/dict: length >= min_len"),
+    ("max_len", "str/list/dict: length <= max_len"),
+    ("pattern", "str: full-match regex"),
+];
+
+/// True for schema files (`*.schema.kvd`), which hold type names and
+/// descriptor blocks instead of data values.
+pub fn is_schema_uri(uri: &Url) -> bool {
+    uri.path().ends_with(".schema.kvd")
+}
+
 #[derive(Debug)]
 struct Backend {
     client: Client,
@@ -534,11 +563,11 @@ impl LanguageServer for Backend {
         let before: String = line_text.chars().take(pos.character as usize).collect();
 
         let mut items = Vec::new();
-        if before
-            .rsplit([':', ' '])
-            .next()
-            .is_some_and(|w| w == "type")
+        let last_word = before.rsplit([':', ' ']).next().unwrap_or("");
+        if last_word == "type"
+            || last_word == "element"
             || before.contains("type:")
+            || before.contains("element:")
         {
             for (name, doc) in BUILTINS {
                 items.push(CompletionItem {
@@ -562,6 +591,24 @@ impl LanguageServer for Backend {
                 });
             }
         };
+        // Inside a schema file, descriptor and validation keys come first.
+        // A `validation` block holds constraint keys; anywhere else in a
+        // descriptor, the block keys apply.
+        if is_schema_uri(uri) {
+            let lines: Vec<&str> = text.lines().collect();
+            let idx = (pos.line as usize).min(lines.len().saturating_sub(1));
+            let path = path_at_lines(&lines, idx);
+            let in_validation = path.last().is_some_and(|s| s == "validation")
+                || path.iter().rev().nth(1).is_some_and(|s| s == "validation");
+            let table = if in_validation {
+                VALIDATION_KEYS
+            } else {
+                DESCRIPTOR_KEYS
+            };
+            for (name, doc) in table {
+                push(name, CompletionItemKind::FIELD, doc);
+            }
+        }
         for (name, doc) in BUILTINS {
             push(name, CompletionItemKind::TYPE_PARAMETER, doc);
         }
@@ -588,6 +635,29 @@ impl LanguageServer for Backend {
                 }
             }
         }
+        // In a schema file, mirror the sibling data keys so node names
+        // complete the same way they do from the data side.
+        if is_schema_uri(uri) {
+            if let Some(data_uri) = sibling_data_uri(uri).await {
+                let data_text = self.get_text(&data_uri).await.or_else(|| {
+                    data_uri
+                        .to_file_path()
+                        .ok()
+                        .and_then(|p| std::fs::read_to_string(p).ok())
+                });
+                if let Some(data_text) = data_text {
+                    if let Ok(data) = kvd_rs::deserialize::from_str(&data_text) {
+                        let mut dkeys = Vec::new();
+                        collect_keys(&data, "", &mut dkeys);
+                        for k in &dkeys {
+                            if let Some(leaf) = k.split('.').next_back() {
+                                push(leaf, CompletionItemKind::FIELD, k);
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Ok(Some(CompletionResponse::Array(items)))
     }
 
@@ -605,6 +675,21 @@ impl LanguageServer for Backend {
                 ))),
                 range: None,
             }));
+        }
+        // In schema files, explain descriptor and validation keys.
+        if is_schema_uri(uri) {
+            if let Some((_, doc)) = DESCRIPTOR_KEYS
+                .iter()
+                .chain(VALIDATION_KEYS.iter())
+                .find(|(n, _)| *n == word)
+            {
+                return Ok(Some(Hover {
+                    contents: HoverContents::Scalar(MarkedString::String(format!(
+                        "schema key `{word}`: {doc}"
+                    ))),
+                    range: None,
+                }));
+            }
         }
         let Ok(doc) = kvd_rs::deserialize::from_str(&text) else {
             return Ok(None);

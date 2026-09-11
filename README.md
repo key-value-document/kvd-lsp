@@ -22,8 +22,13 @@ The server speaks LSP over stdin/stdout. Configure your editor to launch
   from the sibling `<name>.schema.kvd` file when present.
 - Completion: builtin type names (`int`, `float`, `bool`, `str`, `list`,
   `dict`), scalar keywords (`true`, `false`, `null`), and document keys.
+  In `*.schema.kvd` files, descriptor keys (`type`, `optional`,
+  `element`, `validation`), constraint keys inside `validation` blocks
+  (`min`, `max`, `pattern`, ...), and sibling data keys are offered;
+  after `type:`/`element:` the builtin types complete.
 - Hover: one-line help for builtins; scalar shape/text or dict/list size
-  for document keys.
+  for document keys. In schema files, descriptor and validation keys get
+  spec help.
 - Formatting: whole-document rewrite via `kvd_rs::serialize::to_string`.
 - Go to definition: data file key jumps to the sibling schema key, and
   schema file key jumps back to the data key.

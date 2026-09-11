@@ -291,3 +291,79 @@ fn hover_completion_formatting_definition() {
 
     s.shutdown();
 }
+
+#[test]
+fn schema_file_descriptor_completion_and_hover() {
+    let dir = std::env::temp_dir().join("kvd-lsp-test-schema");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.kvd"), "port: 8080\n").unwrap();
+    let schema_uri = format!("file://{}/app.schema.kvd", dir.display());
+    let schema_text = "port:\n  type: int\n  validation:\n    min: 0\n";
+
+    let mut s = Session::start();
+    s.initialize();
+    s.did_open(&schema_uri, schema_text);
+    let _ = s.next_diagnostics();
+
+    // Inside the validation block: constraint keys offered.
+    let comp = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":4}}),
+    );
+    let labels: Vec<String> = comp
+        .pointer("/result")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|i| {
+            i.pointer("/label")
+                .and_then(|l| l.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    for want in ["min", "max", "pattern"] {
+        assert!(
+            labels.iter().any(|l| l == want),
+            "validation completion missing {want}: {labels:?}"
+        );
+    }
+
+    // After `type:`: builtin type names offered.
+    let tcomp = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":1,"character":8}}),
+    );
+    let tlabels: Vec<String> = tcomp
+        .pointer("/result")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|i| {
+            i.pointer("/label")
+                .and_then(|l| l.as_str())
+                .map(str::to_string)
+        })
+        .collect();
+    assert!(
+        tlabels.iter().any(|l| l == "int"),
+        "type completion missing int: {tlabels:?}"
+    );
+
+    // Hover on a validation key explains it.
+    let hover = s.request(
+        "textDocument/hover",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":5}}),
+    );
+    let contents = hover
+        .pointer("/result/contents")
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert!(
+        contents.to_string().contains("min"),
+        "hover missing validation help: {hover}"
+    );
+
+    s.shutdown();
+}
