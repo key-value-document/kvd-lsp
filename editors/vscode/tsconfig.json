@@ -1,7 +1,6 @@
 {
     "compilerOptions": {
         "module": "commonjs",
-        "moduleResolution": "node",
         "outDir": "out",
         "rootDir": "src",
         "sourceMap": true,
