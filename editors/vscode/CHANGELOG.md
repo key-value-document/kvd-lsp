@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- Documentation fixes: link to the KVD spec, document syntax highlighting
+  and version requirements, and describe the OS-aware path resolution
+  order.
+
 ## 0.3.0
 
 - Auto-detect `kvd-lsp` from `$CARGO_HOME/bin` (or `~/.cargo/bin`) so a
@@ -10,6 +16,8 @@
 - Default each OS setting to its `cargo install` location and expand `~`
   and environment variables in configured paths.
 - Document `cargo install` as the recommended install path.
+- Pairs with `kvd-lsp` 0.3.0, which adds type-aware schema completion and
+  `deprecated` block help.
 
 ## 0.1.0
 

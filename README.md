@@ -1,6 +1,7 @@
 # kvd-lsp
 
-Language server for the KVD config/data format, over stdio.
+Language server for [KVD](https://github.com/key-value-document/kvd-spec),
+an opinionated human-readable config/data format, over stdio.
 
 Built on `tower-lsp 0.20` and `kvd-rs`. Diagnostics come from
 `kvd_rs::deserialize`; schema checks from `kvd_rs::schema`; formatting
@@ -13,8 +14,9 @@ cargo install kvd-lsp
 ```
 
 This puts `kvd-lsp` in `$CARGO_HOME/bin` (`~/.cargo/bin` by default,
-`%USERPROFILE%\.cargo\bin` on Windows). The VS Code extension searches
-that directory automatically.
+`%USERPROFILE%\.cargo\bin` on Windows). Requires Rust 1.85 or newer. The
+[VS Code client](https://github.com/key-value-document/kvd-lsp/tree/main/editors/vscode)
+searches that directory automatically.
 
 ## Build and run
 
@@ -36,10 +38,11 @@ The server speaks LSP over stdin/stdout. Configure your editor to launch
   `description`, `deprecated`, `element`, `validation`), constraint keys
   inside `validation` blocks, and sibling data keys are offered; `element`
   is only offered for `list`/`dict` descriptors, and constraints are
-  filtered by the descriptor type (`min`/`max` for numbers, `min_len`/
-  `max_len`/`pattern` for strings, `min_len`/`max_len` for containers,
-  none for `bool`). Inside a `deprecated` block, `reason` and `since`
-  complete. After `type:`/`element:` the builtin types complete.
+  filtered by the descriptor type (`min`/`max`/`exclusive_min`/
+  `exclusive_max` for numbers, `min_len`/`max_len`/`pattern` for strings,
+  `min_len`/`max_len` for containers, none for `bool`). Inside a
+  `deprecated` block, `reason` and `since` complete. After
+  `type:`/`element:` the builtin types complete.
 - Hover: one-line help for builtins; scalar shape/text or dict/list size
   for document keys. In schema files, descriptor, validation, and
   `deprecated` block keys get spec help.
@@ -55,3 +58,7 @@ By convention only, no configuration:
   exists on disk.
 - A `*.schema.kvd` file is never checked against a further sibling; its
   go-to-definition target is the sibling data file.
+
+## License
+
+MIT
