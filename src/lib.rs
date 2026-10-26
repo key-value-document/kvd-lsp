@@ -67,6 +67,15 @@ const VALIDATION_KEYS: &[(&str, &str)] = &[
     ("pattern", "str: full-match regex"),
 ];
 
+/// Keys inside a `deprecated` block (spec §10).
+const DEPRECATED_KEYS: &[(&str, &str)] = &[
+    ("reason", "deprecated: human-readable reason (string)"),
+    (
+        "since",
+        "deprecated: version or date deprecation started (string)",
+    ),
+];
+
 /// True for schema files (`*.schema.kvd`), which hold type names and
 /// descriptor blocks instead of data values.
 pub fn is_schema_uri(uri: &Url) -> bool {
@@ -471,6 +480,53 @@ pub fn lookup_path<'a>(
     Some(cur)
 }
 
+/// Descriptor keys valid for a descriptor of `type_name` (spec §10).
+/// `element` is only accepted on `list`/`dict` descriptors. When the type
+/// is unknown (absent or unparseable), every key is offered.
+pub fn descriptor_keys_for(type_name: Option<&str>) -> Vec<(&'static str, &'static str)> {
+    DESCRIPTOR_KEYS
+        .iter()
+        .copied()
+        .filter(|(name, _)| {
+            *name != "element"
+                || type_name.is_none()
+                || matches!(type_name, Some("list") | Some("dict"))
+        })
+        .collect()
+}
+
+/// Constraint keys valid for `type_name` in a `validation` block (spec §10).
+/// An unknown type offers every constraint.
+pub fn validation_keys_for(type_name: Option<&str>) -> Vec<(&'static str, &'static str)> {
+    VALIDATION_KEYS
+        .iter()
+        .copied()
+        .filter(|(name, _)| match type_name {
+            Some("int") | Some("float") => {
+                matches!(*name, "min" | "max" | "exclusive_min" | "exclusive_max")
+            }
+            Some("str") => matches!(*name, "min_len" | "max_len" | "pattern"),
+            Some("list") | Some("dict") => matches!(*name, "min_len" | "max_len"),
+            Some("bool") => false,
+            _ => true,
+        })
+        .collect()
+}
+
+/// Type name declared by the descriptor at `path`, if it is a descriptor.
+/// A one-item schema list (`- type: ...`) stands for its first item.
+pub fn descriptor_type_at(text: &str, path: &[String]) -> Option<String> {
+    let doc = kvd_rs::deserialize::from_str(text).ok()?;
+    let node = match lookup_path(&doc, path)? {
+        kvd_rs::value::Node::List(items) => items.first()?,
+        other => other,
+    };
+    let map = node.as_map().or_else(|| node.as_dict())?;
+    map.get("type")
+        .and_then(|n| n.as_scalar())
+        .map(|s| s.text.clone())
+}
+
 fn node_help(node: &kvd_rs::value::Node) -> String {
     match node {
         kvd_rs::value::Node::Scalar(s) => format!("{}: {}", s.shape, s.text),
@@ -603,21 +659,34 @@ impl LanguageServer for Backend {
             }
         };
         // Inside a schema file, descriptor and validation keys come first.
-        // A `validation` block holds constraint keys; anywhere else in a
-        // descriptor, the block keys apply.
+        // A `validation` block holds constraints valid for the descriptor's
+        // type, a `deprecated` block holds `reason`/`since`, and anywhere
+        // else in a descriptor the block keys apply.
         if is_schema_uri(uri) {
             let lines: Vec<&str> = text.lines().collect();
             let idx = (pos.line as usize).min(lines.len().saturating_sub(1));
             let path = path_at_lines(&lines, idx);
-            let in_validation = path.last().is_some_and(|s| s == "validation")
-                || path.iter().rev().nth(1).is_some_and(|s| s == "validation");
-            let table = if in_validation {
-                VALIDATION_KEYS
+            let last = path.last().map(String::as_str);
+            let parent = path.iter().rev().nth(1).map(String::as_str);
+            if last == Some("validation") || parent == Some("validation") {
+                let descriptor_path = if last == Some("validation") {
+                    &path[..path.len() - 1]
+                } else {
+                    &path[..path.len().saturating_sub(2)]
+                };
+                let type_name = descriptor_type_at(&text, descriptor_path);
+                for (name, doc) in validation_keys_for(type_name.as_deref()) {
+                    push(name, CompletionItemKind::FIELD, doc);
+                }
+            } else if last == Some("deprecated") || parent == Some("deprecated") {
+                for (name, doc) in DEPRECATED_KEYS {
+                    push(name, CompletionItemKind::FIELD, doc);
+                }
             } else {
-                DESCRIPTOR_KEYS
-            };
-            for (name, doc) in table {
-                push(name, CompletionItemKind::FIELD, doc);
+                let type_name = descriptor_type_at(&text, &path);
+                for (name, doc) in descriptor_keys_for(type_name.as_deref()) {
+                    push(name, CompletionItemKind::FIELD, doc);
+                }
             }
         }
         for (name, doc) in BUILTINS {
@@ -687,12 +756,25 @@ impl LanguageServer for Backend {
                 range: None,
             }));
         }
-        // In schema files, explain descriptor and validation keys.
+        let lines: Vec<&str> = text.lines().collect();
+        let path = path_at_lines(
+            &lines,
+            (pos.line as usize).min(lines.len().saturating_sub(1)),
+        );
+        // In schema files, explain descriptor, validation, and deprecated
+        // block keys. `reason`/`since` are common data keys, so only treat
+        // them as schema keys inside a `deprecated` block.
         if is_schema_uri(uri) {
+            let deprecated_doc = if path.iter().any(|s| s == "deprecated") {
+                DEPRECATED_KEYS.iter().find(|(n, _)| *n == word)
+            } else {
+                None
+            };
             if let Some((_, doc)) = DESCRIPTOR_KEYS
                 .iter()
                 .chain(VALIDATION_KEYS.iter())
                 .find(|(n, _)| *n == word)
+                .or(deprecated_doc)
             {
                 return Ok(Some(Hover {
                     contents: HoverContents::Scalar(MarkedString::String(format!(
@@ -705,11 +787,6 @@ impl LanguageServer for Backend {
         let Ok(doc) = kvd_rs::deserialize::from_str(&text) else {
             return Ok(None);
         };
-        let lines: Vec<&str> = text.lines().collect();
-        let path = path_at_lines(
-            &lines,
-            (pos.line as usize).min(lines.len().saturating_sub(1)),
-        );
         let mut info = lookup_path(&doc, &path).map(node_help);
         if info.is_none() {
             let short = path.last().cloned().unwrap_or_else(|| word.clone());

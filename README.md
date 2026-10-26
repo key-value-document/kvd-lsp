@@ -6,6 +6,16 @@ Built on `tower-lsp 0.20` and `kvd-rs`. Diagnostics come from
 `kvd_rs::deserialize`; schema checks from `kvd_rs::schema`; formatting
 round-trips through `kvd_rs::serialize`.
 
+## Install
+
+```sh
+cargo install kvd-lsp
+```
+
+This puts `kvd-lsp` in `$CARGO_HOME/bin` (`~/.cargo/bin` by default,
+`%USERPROFILE%\.cargo\bin` on Windows). The VS Code extension searches
+that directory automatically.
+
 ## Build and run
 
 ```sh
@@ -23,12 +33,16 @@ The server speaks LSP over stdin/stdout. Configure your editor to launch
 - Completion: builtin type names (`int`, `float`, `bool`, `str`, `list`,
   `dict`), scalar keywords (`true`, `false`, `null`), and document keys.
   In `*.schema.kvd` files, descriptor keys (`type`, `optional`,
-  `element`, `validation`), constraint keys inside `validation` blocks
-  (`min`, `max`, `pattern`, ...), and sibling data keys are offered;
-  after `type:`/`element:` the builtin types complete.
+  `description`, `deprecated`, `element`, `validation`), constraint keys
+  inside `validation` blocks, and sibling data keys are offered; `element`
+  is only offered for `list`/`dict` descriptors, and constraints are
+  filtered by the descriptor type (`min`/`max` for numbers, `min_len`/
+  `max_len`/`pattern` for strings, `min_len`/`max_len` for containers,
+  none for `bool`). Inside a `deprecated` block, `reason` and `since`
+  complete. After `type:`/`element:` the builtin types complete.
 - Hover: one-line help for builtins; scalar shape/text or dict/list size
-  for document keys. In schema files, descriptor and validation keys get
-  spec help.
+  for document keys. In schema files, descriptor, validation, and
+  `deprecated` block keys get spec help.
 - Formatting: whole-document rewrite via `kvd_rs::serialize::to_string`.
 - Go to definition: data file key jumps to the sibling schema key, and
   schema file key jumps back to the data key.

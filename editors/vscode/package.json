@@ -2,15 +2,39 @@
     "activationEvents": [
         "onLanguage:kvd"
     ],
+    "bugs": {
+        "url": "https://github.com/key-value-document/kvd-lsp/issues"
+    },
     "categories": [
         "Programming Languages"
     ],
     "contributes": {
+        "commands": [
+            {
+                "command": "kvd.restartServer",
+                "title": "KVD: Restart Language Server"
+            }
+        ],
         "configuration": {
             "properties": {
                 "kvd.serverPath": {
                     "default": "",
-                    "description": "Absolute path to the kvd-lsp binary. Empty = use the debug build next to this extension.",
+                    "description": "Absolute path to the kvd-lsp binary. Overrides the OS-specific setting and auto-detection.",
+                    "type": "string"
+                },
+                "kvd.serverPathDarwin": {
+                    "default": "~/.cargo/bin/kvd-lsp",
+                    "description": "Absolute path to the kvd-lsp binary on macOS. `~` and environment variables are expanded.",
+                    "type": "string"
+                },
+                "kvd.serverPathLinux": {
+                    "default": "~/.cargo/bin/kvd-lsp",
+                    "description": "Absolute path to the kvd-lsp binary on Linux. `~` and environment variables are expanded.",
+                    "type": "string"
+                },
+                "kvd.serverPathWindows": {
+                    "default": "~/.cargo/bin/kvd-lsp.exe",
+                    "description": "Absolute path to the kvd-lsp binary on Windows. `~` and environment variables are expanded.",
                     "type": "string"
                 }
             },
@@ -42,19 +66,37 @@
     "description": "KVD language support (diagnostics, completion, hover, formatting, go to definition) via kvd-lsp",
     "devDependencies": {
         "@types/node": "^20.0.0",
-        "@types/vscode": "^1.80.0",
+        "@types/vscode": "^1.82.0",
+        "@vscode/vsce": "^3.0.0",
         "typescript": "^5.0.0"
     },
     "displayName": "KVD",
     "engines": {
-        "vscode": "^1.80.0"
+        "vscode": "^1.82.0"
     },
+    "homepage": "https://github.com/key-value-document/kvd-lsp#readme",
+    "keywords": [
+        "kvd",
+        "config",
+        "data-format",
+        "language-server",
+        "lsp"
+    ],
+    "license": "MIT",
     "main": "./out/extension.js",
     "name": "kvd-vscode",
-    "publisher": "kvd",
+    "publisher": "KeyValueDocument",
+    "repository": {
+        "directory": "editors/vscode",
+        "type": "git",
+        "url": "https://github.com/key-value-document/kvd-lsp.git"
+    },
     "scripts": {
         "compile": "tsc -p ./",
+        "package": "vsce package",
+        "publish": "vsce publish",
+        "vscode:prepublish": "npm run compile",
         "watch": "tsc -watch -p ./"
     },
-    "version": "0.1.0"
+    "version": "0.3.0"
 }
