@@ -1,18 +1,84 @@
 {
     "name": "KVD",
     "patterns": [
-        {
-            "captures": {
-                "1": {
-                    "name": "entity.name.tag.kvd"
-                }
-            },
-            "match": "^\\s*([A-Za-z0-9_-]+)(?=:)"
-        },
-        {
-            "match": "\"(\\\\\\\\.|[^\"\\\\\\\\])*\"",
-            "name": "string.quoted.double.kvd"
-        }
+        { "include": "#comment" },
+        { "include": "#dict-entry" },
+        { "include": "#key" },
+        { "include": "#list-marker" },
+        { "include": "#string-multiline-double" },
+        { "include": "#string-multiline-single" },
+        { "include": "#string-double" },
+        { "include": "#string-single" },
+        { "include": "#number" },
+        { "include": "#boolean" }
     ],
+    "repository": {
+        "boolean": {
+            "match": "(?<=[:\\s])(?:true|false|null)(?=\\s*$)",
+            "name": "constant.language.kvd"
+        },
+        "comment": {
+            "match": "^\\s*#.*$",
+            "name": "comment.line.number-sign.kvd"
+        },
+        "dict-entry": {
+            "captures": {
+                "1": { "name": "keyword.operator.kvd" },
+                "2": { "name": "entity.name.tag.kvd" },
+                "3": { "name": "punctuation.separator.key-value.kvd" }
+            },
+            "match": "^\\s*(=)\\s*(\"(?:\\\\.|[^\"\\\\])*\"|'(?:[^'])*')\\s*(:)"
+        },
+        "key": {
+            "captures": {
+                "1": { "name": "punctuation.definition.list.kvd" },
+                "2": { "name": "entity.name.tag.kvd" },
+                "3": { "name": "punctuation.separator.key-value.kvd" }
+            },
+            "match": "^\\s*(?:(-)\\s+)?([A-Za-z0-9][A-Za-z0-9_-]*(?:\\.[A-Za-z0-9][A-Za-z0-9_-]*)*)\\s*(:)"
+        },
+        "list-marker": {
+            "captures": {
+                "1": { "name": "punctuation.definition.list.kvd" }
+            },
+            "match": "^\\s*(-)(?=\\s)"
+        },
+        "number": {
+            "match": "(?<=[:\\s])-?\\d+(?:\\.\\d+)?(?=\\s*$)",
+            "name": "constant.numeric.kvd"
+        },
+        "string-double": {
+            "match": "\"(?:\\\\.|[^\"\\\\])*\"",
+            "name": "string.quoted.double.kvd"
+        },
+        "string-multiline-double": {
+            "begin": "\"\"\"",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.string.begin.kvd" }
+            },
+            "contentName": "string.quoted.multiline.kvd",
+            "end": "\"\"\"",
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.string.end.kvd" }
+            },
+            "name": "string.quoted.multiline.kvd"
+        },
+        "string-multiline-single": {
+            "begin": "'''",
+            "beginCaptures": {
+                "0": { "name": "punctuation.definition.string.begin.kvd" }
+            },
+            "contentName": "string.quoted.multiline.kvd",
+            "end": "'''",
+            "endCaptures": {
+                "0": { "name": "punctuation.definition.string.end.kvd" }
+            },
+            "name": "string.quoted.multiline.kvd"
+        },
+        "string-single": {
+            "match": "'(?:[^'])*'",
+            "name": "string.quoted.single.kvd"
+        }
+    },
     "scopeName": "source.kvd"
 }

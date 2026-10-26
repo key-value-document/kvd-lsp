@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.2
+
+- Highlight keys that follow a `- ` list marker, plus dotted keys and dict
+  entries.
+- Highlight comments, numbers, booleans, single-quoted strings, and
+  multiline strings.
+
 ## 0.3.1
 
 - Documentation fixes: link to the KVD spec, document syntax highlighting
