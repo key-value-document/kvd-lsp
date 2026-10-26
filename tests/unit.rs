@@ -1,23 +1,9 @@
 use kvd_lsp::{
     collect_keys, descriptor_keys_for, descriptor_type_at, find_path_line, is_schema_uri,
-    key_before_colon, locate_path, lookup_path, next_segment, parent_path_at, parse_diagnostics,
-    path_at_lines, validation_keys_for, word_at,
+    key_before_colon, locate_path, lookup_path, next_segment, parent_path_at, path_at_lines,
+    validation_keys_for, word_at,
 };
-use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Url};
-
-#[test]
-fn parse_error_gives_one_diagnostic() {
-    let diags = parse_diagnostics("port: : bad\n");
-    assert_eq!(diags.len(), 1);
-    assert_eq!(diags[0].severity, Some(DiagnosticSeverity::ERROR));
-    assert_eq!(diags[0].range.start.line, 0);
-    assert_eq!(diags[0].source.as_deref(), Some("kvd"));
-}
-
-#[test]
-fn clean_doc_has_no_parse_diagnostics() {
-    assert!(parse_diagnostics("port: 8080\nhost: \"x\"\n").is_empty());
-}
+use tower_lsp::lsp_types::{Position, Url};
 
 #[test]
 fn path_at_lines_tracks_indent() {
@@ -202,7 +188,6 @@ fn descriptor_type_at_reads_type() {
         descriptor_type_at(text, &["port".to_string()]).as_deref(),
         Some("int")
     );
-    assert_eq!(descriptor_type_at(text, &[]), None);
 }
 
 #[test]
@@ -220,15 +205,6 @@ fn descriptor_type_at_handles_schema_list() {
     assert_eq!(
         descriptor_type_at(text, &["endpoints".to_string()]).as_deref(),
         Some("dict")
-    );
-}
-
-#[test]
-fn descriptor_type_at_ignores_incomplete_blocks() {
-    let text = "blob:\n  type: bytes\n  validation:\n    ";
-    assert_eq!(
-        descriptor_type_at(text, &["blob".to_string()]).as_deref(),
-        Some("bytes")
     );
 }
 

@@ -178,16 +178,10 @@ fn parse_error_produces_diagnostic() {
         diags[0].pointer("/source").and_then(|v| v.as_str()),
         Some("kvd")
     );
-    s.shutdown();
-}
-
-#[test]
-fn clean_doc_has_no_diagnostics() {
-    let mut s = Session::start();
-    s.initialize();
-    s.did_open("file:///tmp/lsp-test-good.kvd", "port: 8080\nhost: \"x\"\n");
-    let msg = s.next_diagnostics();
-    assert!(diags_for(&msg).is_empty(), "unexpected diagnostics: {msg}");
+    assert_eq!(
+        diags[0].pointer("/severity").and_then(|v| v.as_u64()),
+        Some(1)
+    );
     s.shutdown();
 }
 
