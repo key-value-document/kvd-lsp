@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- Pair with `kvd-lsp` 0.4.0: context-aware path-segment completion,
+  schema type/value separation, and `bytes` support.
+- Rebuilt the extension package; no extension code changes since 0.3.2.
+
 ## 0.3.2
 
 - Highlight keys that follow a `- ` list marker, plus dotted keys and dict
