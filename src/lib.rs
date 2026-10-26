@@ -21,6 +21,10 @@ const BUILTINS: &[(&str, &str)] = &[
     ("bool", "the bare literals true / false"),
     ("str", "quoted string, or \"\"\" block for multi-line text"),
     (
+        "bytes",
+        "base64 text; schema-only type with no literal of its own",
+    ),
+    (
         "list",
         "dash-marker sequence; element type via a one-item list",
     ),
@@ -38,7 +42,7 @@ const SCALAR_KEYWORDS: &[(&str, &str)] = &[
 const DESCRIPTOR_KEYS: &[(&str, &str)] = &[
     (
         "type",
-        "required: bare type name (int, float, bool, str, dict, list)",
+        "required: bare type name (int, float, bool, str, bytes, dict, list)",
     ),
     ("optional", "optional: true allows absence or null"),
     ("description", "ignored documentation string for the field"),
@@ -62,8 +66,8 @@ const VALIDATION_KEYS: &[(&str, &str)] = &[
     ("max", "int/float: value <= max"),
     ("exclusive_min", "int/float: value > exclusive_min"),
     ("exclusive_max", "int/float: value < exclusive_max"),
-    ("min_len", "str/list/dict: length >= min_len"),
-    ("max_len", "str/list/dict: length <= max_len"),
+    ("min_len", "str/bytes/list/dict: length >= min_len"),
+    ("max_len", "str/bytes/list/dict: length <= max_len"),
     ("pattern", "str: full-match regex"),
 ];
 
@@ -80,6 +84,29 @@ const DEPRECATED_KEYS: &[(&str, &str)] = &[
 /// descriptor blocks instead of data values.
 pub fn is_schema_uri(uri: &Url) -> bool {
     uri.path().ends_with(".schema.kvd")
+}
+
+/// True when the cursor sits inside a comment or an unterminated string,
+/// where neither keys nor values should be suggested.
+fn in_comment_or_string(before: &str) -> bool {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for c in before.chars() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if q == '"' && c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+        } else if c == '#' {
+            return true;
+        } else if c == '"' || c == '\'' {
+            quote = Some(c);
+        }
+    }
+    quote.is_some()
 }
 
 #[derive(Debug)]
@@ -229,33 +256,60 @@ pub fn locate_path(text: &str, path: &str) -> Range {
 pub fn path_at_lines(lines: &[&str], line_idx: usize) -> Vec<String> {
     let mut stack: Vec<(usize, String)> = Vec::new();
     for line in lines.iter().take(line_idx + 1) {
-        let indent = line.len() - line.trim_start_matches(' ').len();
-        let mut content = line.trim();
-        let mut eff = indent;
-        if content.starts_with("- ") || content == "-" {
-            content = content.strip_prefix("- ").unwrap_or("");
-            eff += 2;
-        }
-        if content.starts_with("= ") || content == "=" {
-            content = content.strip_prefix("= ").unwrap_or("");
-            eff += 2;
-        }
-        let Some(head) = key_before_colon(content) else {
-            continue;
-        };
-        let Some(keys) = split_key_head(&head) else {
-            continue;
-        };
-        while stack.last().is_some_and(|(d, _)| *d >= eff) {
-            stack.pop();
-        }
-        // Dict keys are always quoted single segments, so split_key_head
-        // yields the opaque key unsplit; dotted node paths expand here.
-        for key in keys {
-            stack.push((eff, key));
-        }
+        push_line(&mut stack, line);
     }
     stack.into_iter().map(|(_, k)| k).collect()
+}
+
+/// Path of the node containing the entry on `line_idx`, excluding that
+/// entry's own key. Used to complete keys at the current position.
+pub fn parent_path_at(lines: &[&str], line_idx: usize) -> Vec<String> {
+    let mut stack: Vec<(usize, String)> = Vec::new();
+    for line in lines.iter().take(line_idx) {
+        push_line(&mut stack, line);
+    }
+    let current = lines.get(line_idx).copied().unwrap_or("");
+    let eff = strip_entry_markers(current).1;
+    while stack.last().is_some_and(|(d, _)| *d >= eff) {
+        stack.pop();
+    }
+    stack.into_iter().map(|(_, k)| k).collect()
+}
+
+/// Line content without leading `- ` / `= ` markers, plus the effective
+/// indent (each marker counts as one extra level).
+fn strip_entry_markers(line: &str) -> (&str, usize) {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    let mut content = line.trim();
+    let mut eff = indent;
+    if content.starts_with("- ") || content == "-" {
+        content = content.strip_prefix("- ").unwrap_or("");
+        eff += 2;
+    }
+    if content.starts_with("= ") || content == "=" {
+        content = content.strip_prefix("= ").unwrap_or("");
+        eff += 2;
+    }
+    (content, eff)
+}
+
+/// Push the entry on `line` onto `stack`; ignore non-key lines.
+fn push_line(stack: &mut Vec<(usize, String)>, line: &str) {
+    let (content, eff) = strip_entry_markers(line);
+    let Some(head) = key_before_colon(content) else {
+        return;
+    };
+    let Some(keys) = split_key_head(&head) else {
+        return;
+    };
+    while stack.last().is_some_and(|(d, _)| *d >= eff) {
+        stack.pop();
+    }
+    // Dict keys are always quoted single segments, so split_key_head
+    // yields the opaque key unsplit; dotted node paths expand here.
+    for key in keys {
+        stack.push((eff, key));
+    }
 }
 
 /// Raw key head before the first `:` outside quotes (`a.b.c`, `"a.b"`).
@@ -345,14 +399,7 @@ fn line_key(line: &str) -> Option<String> {
 
 /// Line content with any leading `- ` / `= ` markers removed.
 fn strip_markers(content: &str) -> Option<&str> {
-    let mut c = content;
-    if c.starts_with("- ") || c == "-" {
-        c = c.strip_prefix("- ").unwrap_or("");
-    }
-    if c.starts_with("= ") || c == "=" {
-        c = c.strip_prefix("= ").unwrap_or("");
-    }
-    Some(c)
+    Some(strip_entry_markers(content).0)
 }
 
 /// Range covering the key text on a source line.
@@ -454,6 +501,23 @@ pub fn collect_keys(node: &kvd_rs::value::Node, prefix: &str, out: &mut Vec<Stri
     }
 }
 
+/// Next path segment after `current`, or `None` when `full` is not under it.
+pub fn next_segment(full: &str, current: &[String]) -> Option<String> {
+    let segs: Vec<&str> = full.split('.').collect();
+    if segs.len() <= current.len() {
+        return None;
+    }
+    if segs[..current.len()]
+        .iter()
+        .zip(current)
+        .all(|(a, b)| *a == b)
+    {
+        Some(segs[current.len()].to_string())
+    } else {
+        None
+    }
+}
+
 /// Navigate a parsed document along a dotted path, descending into the
 /// first list item when a list is met (schema element position).
 pub fn lookup_path<'a>(
@@ -506,6 +570,7 @@ pub fn validation_keys_for(type_name: Option<&str>) -> Vec<(&'static str, &'stat
                 matches!(*name, "min" | "max" | "exclusive_min" | "exclusive_max")
             }
             Some("str") => matches!(*name, "min_len" | "max_len" | "pattern"),
+            Some("bytes") => matches!(*name, "min_len" | "max_len"),
             Some("list") | Some("dict") => matches!(*name, "min_len" | "max_len"),
             Some("bool") => false,
             _ => true,
@@ -513,18 +578,71 @@ pub fn validation_keys_for(type_name: Option<&str>) -> Vec<(&'static str, &'stat
         .collect()
 }
 
+/// Parse the document for key completion. When the line under the cursor
+/// makes the document invalid, drop that line and retry, then fall back to
+/// the prefix before it, so a partially typed entry does not hide keys.
+fn parse_for_completion(text: &str, line_idx: usize) -> Option<kvd_rs::value::Node> {
+    if let Ok(doc) = kvd_rs::deserialize::from_str(text) {
+        return Some(doc);
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let without: Vec<&str> = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != line_idx)
+        .map(|(_, line)| *line)
+        .collect();
+    if let Ok(doc) = kvd_rs::deserialize::from_str(&without.join("\n")) {
+        return Some(doc);
+    }
+    let prefix = lines.iter().take(line_idx).copied().collect::<Vec<_>>();
+    kvd_rs::deserialize::from_str(&prefix.join("\n")).ok()
+}
+
 /// Type name declared by the descriptor at `path`, if it is a descriptor.
-/// A one-item schema list (`- type: ...`) stands for its first item.
+/// Reads the `type` entry from the source lines, so an incomplete sibling
+/// block (for example an empty `validation:`) does not hide it.
 pub fn descriptor_type_at(text: &str, path: &[String]) -> Option<String> {
-    let doc = kvd_rs::deserialize::from_str(text).ok()?;
-    let node = match lookup_path(&doc, path)? {
-        kvd_rs::value::Node::List(items) => items.first()?,
-        other => other,
-    };
-    let map = node.as_map().or_else(|| node.as_dict())?;
-    map.get("type")
-        .and_then(|n| n.as_scalar())
-        .map(|s| s.text.clone())
+    let lines: Vec<&str> = text.lines().collect();
+    descriptor_type_at_lines(&lines, path)
+}
+
+fn descriptor_type_at_lines(lines: &[&str], path: &[String]) -> Option<String> {
+    let mut type_path = path.to_vec();
+    type_path.push("type".to_string());
+    for (i, line) in lines.iter().enumerate() {
+        if path_at_lines(lines, i) != type_path {
+            continue;
+        }
+        let (content, _) = strip_entry_markers(line);
+        let Some((_, value)) = content.split_once(':') else {
+            continue;
+        };
+        let value = value.split('#').next().unwrap_or("").trim();
+        if !value.is_empty() {
+            return Some(value.trim_matches(['"', '\'']).to_string());
+        }
+    }
+    None
+}
+
+/// True when the node at `path` is a descriptor: it declares a type, or its
+/// existing children are all descriptor keys (or it is empty).
+fn is_descriptor_node(lines: &[&str], path: &[String]) -> bool {
+    if descriptor_type_at_lines(lines, path).is_some() {
+        return true;
+    }
+    for (i, _) in lines.iter().enumerate() {
+        let p = path_at_lines(lines, i);
+        if p.len() != path.len() + 1 || !p.starts_with(path) {
+            continue;
+        }
+        let child = &p[path.len()];
+        if !DESCRIPTOR_KEYS.iter().any(|(name, _)| name == child) {
+            return false;
+        }
+    }
+    true
 }
 
 fn node_help(node: &kvd_rs::value::Node) -> String {
@@ -628,25 +746,31 @@ impl LanguageServer for Backend {
         let text = self.get_text(uri).await.unwrap_or_default();
         let line_text = text.lines().nth(pos.line as usize).unwrap_or("");
         let before: String = line_text.chars().take(pos.character as usize).collect();
+        let schema = is_schema_uri(uri);
 
-        let mut items = Vec::new();
-        let last_word = before.rsplit([':', ' ']).next().unwrap_or("");
-        if last_word == "type"
-            || last_word == "element"
-            || before.contains("type:")
-            || before.contains("element:")
-        {
-            for (name, doc) in BUILTINS {
-                items.push(CompletionItem {
+        if in_comment_or_string(&before) {
+            return Ok(Some(CompletionResponse::Array(Vec::new())));
+        }
+
+        let last_key = key_before_colon(strip_entry_markers(&before).0)
+            .and_then(|head| split_key_head(&head))
+            .and_then(|segs| segs.last().cloned());
+        let in_value = last_key.is_some();
+
+        if schema && matches!(last_key.as_deref(), Some("type") | Some("element")) {
+            let items = BUILTINS
+                .iter()
+                .map(|(name, doc)| CompletionItem {
                     label: name.to_string(),
                     kind: Some(CompletionItemKind::TYPE_PARAMETER),
                     detail: Some(doc.to_string()),
                     ..Default::default()
-                });
-            }
+                })
+                .collect();
             return Ok(Some(CompletionResponse::Array(items)));
         }
 
+        let mut items = Vec::new();
         let mut seen = HashSet::new();
         let mut push = |label: &str, kind, detail: &str| {
             if seen.insert(label.to_string()) {
@@ -658,66 +782,83 @@ impl LanguageServer for Backend {
                 });
             }
         };
-        // Inside a schema file, descriptor and validation keys come first.
-        // A `validation` block holds constraints valid for the descriptor's
-        // type, a `deprecated` block holds `reason`/`since`, and anywhere
-        // else in a descriptor the block keys apply.
-        if is_schema_uri(uri) {
-            let lines: Vec<&str> = text.lines().collect();
-            let idx = (pos.line as usize).min(lines.len().saturating_sub(1));
-            let path = path_at_lines(&lines, idx);
-            let last = path.last().map(String::as_str);
-            let parent = path.iter().rev().nth(1).map(String::as_str);
-            if last == Some("validation") || parent == Some("validation") {
-                let descriptor_path = if last == Some("validation") {
-                    &path[..path.len() - 1]
-                } else {
-                    &path[..path.len().saturating_sub(2)]
-                };
-                let type_name = descriptor_type_at(&text, descriptor_path);
+
+        if in_value {
+            if schema {
+                match last_key.as_deref() {
+                    Some("optional") => {
+                        push("true", CompletionItemKind::VALUE, "optional field");
+                        push("false", CompletionItemKind::VALUE, "required field");
+                    }
+                    Some(
+                        "description" | "reason" | "since" | "pattern" | "validation"
+                        | "deprecated" | "min" | "max" | "exclusive_min" | "exclusive_max"
+                        | "min_len" | "max_len",
+                    ) => {}
+                    _ => {
+                        for (name, doc) in BUILTINS {
+                            push(name, CompletionItemKind::TYPE_PARAMETER, doc);
+                        }
+                    }
+                }
+            } else {
+                for (kw, doc) in SCALAR_KEYWORDS {
+                    push(kw, CompletionItemKind::KEYWORD, doc);
+                }
+            }
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+
+        let trimmed = line_text.trim_start();
+        let after_list = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+        if after_list.starts_with("= ") || after_list == "=" {
+            return Ok(Some(CompletionResponse::Array(Vec::new())));
+        }
+
+        let lines: Vec<&str> = text.lines().collect();
+        let parent = parent_path_at(&lines, pos.line as usize);
+
+        if schema && !parent.is_empty() {
+            let last = parent.last().map(String::as_str);
+            if last == Some("validation") {
+                let descriptor_path = &parent[..parent.len() - 1];
+                let type_name = descriptor_type_at_lines(&lines, descriptor_path);
                 for (name, doc) in validation_keys_for(type_name.as_deref()) {
                     push(name, CompletionItemKind::FIELD, doc);
                 }
-            } else if last == Some("deprecated") || parent == Some("deprecated") {
+            } else if last == Some("deprecated") {
                 for (name, doc) in DEPRECATED_KEYS {
                     push(name, CompletionItemKind::FIELD, doc);
                 }
-            } else {
-                let type_name = descriptor_type_at(&text, &path);
+            } else if is_descriptor_node(&lines, &parent) {
+                let type_name = descriptor_type_at_lines(&lines, &parent);
                 for (name, doc) in descriptor_keys_for(type_name.as_deref()) {
                     push(name, CompletionItemKind::FIELD, doc);
                 }
             }
         }
-        for (name, doc) in BUILTINS {
-            push(name, CompletionItemKind::TYPE_PARAMETER, doc);
-        }
-        for (kw, doc) in SCALAR_KEYWORDS {
-            push(kw, CompletionItemKind::KEYWORD, doc);
-        }
-        if let Ok(doc) = kvd_rs::deserialize::from_str(&text) {
+
+        let mut push_keys = |keys: &[String]| {
+            for key in keys {
+                if let Some(seg) = next_segment(key, &parent) {
+                    push(&seg, CompletionItemKind::FIELD, key);
+                }
+            }
+        };
+
+        if let Some(doc) = parse_for_completion(&text, pos.line as usize) {
             let mut keys = Vec::new();
             collect_keys(&doc, "", &mut keys);
-            for k in &keys {
-                if let Some(leaf) = k.split('.').next_back() {
-                    push(leaf, CompletionItemKind::FIELD, k);
-                }
-            }
+            push_keys(&keys);
         }
         if let Some(schema_text) = sibling_schema_text(uri).await {
-            if let Ok(schema) = kvd_rs::deserialize::from_str(&schema_text) {
-                let mut skeys = Vec::new();
-                collect_keys(&schema, "", &mut skeys);
-                for k in &skeys {
-                    if let Some(leaf) = k.split('.').next_back() {
-                        push(leaf, CompletionItemKind::FIELD, k);
-                    }
-                }
+            if let Ok(schema_doc) = kvd_rs::deserialize::from_str(&schema_text) {
+                let mut keys = Vec::new();
+                collect_keys(&schema_doc, "", &mut keys);
+                push_keys(&keys);
             }
         }
-        // In a schema file, mirror the sibling data keys so node names
-        // complete the same way they do from the data side.
-        if is_schema_uri(uri) {
+        if schema {
             if let Some(data_uri) = sibling_data_uri(uri).await {
                 let data_text = self.get_text(&data_uri).await.or_else(|| {
                     data_uri
@@ -727,13 +868,9 @@ impl LanguageServer for Backend {
                 });
                 if let Some(data_text) = data_text {
                     if let Ok(data) = kvd_rs::deserialize::from_str(&data_text) {
-                        let mut dkeys = Vec::new();
-                        collect_keys(&data, "", &mut dkeys);
-                        for k in &dkeys {
-                            if let Some(leaf) = k.split('.').next_back() {
-                                push(leaf, CompletionItemKind::FIELD, k);
-                            }
-                        }
+                        let mut keys = Vec::new();
+                        collect_keys(&data, "", &mut keys);
+                        push_keys(&keys);
                     }
                 }
             }

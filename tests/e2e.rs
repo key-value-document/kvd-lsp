@@ -146,6 +146,20 @@ fn diags_for(msg: &Value) -> &[Value] {
         .unwrap_or(&[])
 }
 
+fn completion_labels(msg: &Value) -> Vec<String> {
+    msg.pointer("/result")
+        .and_then(|r| r.as_array())
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|i| {
+            i.pointer("/label")
+                .and_then(|l| l.as_str())
+                .map(str::to_string)
+        })
+        .collect()
+}
+
 #[test]
 fn parse_error_produces_diagnostic() {
     let mut s = Session::start();
@@ -239,22 +253,27 @@ fn hover_completion_formatting_definition() {
         "textDocument/completion",
         json!({"textDocument":{"uri":uri},"position":{"line":0,"character":2}}),
     );
-    let labels: Vec<String> = comp
-        .pointer("/result")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|i| {
-            i.pointer("/label")
-                .and_then(|l| l.as_str())
-                .map(str::to_string)
-        })
-        .collect();
-    for want in ["int", "port", "true"] {
+    let labels = completion_labels(&comp);
+    assert!(
+        labels.iter().any(|l| l == "port"),
+        "completion missing port: {labels:?}"
+    );
+    for unwanted in ["int", "true", "null"] {
         assert!(
-            labels.iter().any(|l| l == want),
-            "completion missing {want}: {labels:?}"
+            !labels.iter().any(|l| l == unwanted),
+            "key completion should not offer {unwanted}: {labels:?}"
+        );
+    }
+
+    let vcomp = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":uri},"position":{"line":0,"character":6}}),
+    );
+    let vlabels = completion_labels(&vcomp);
+    for want in ["true", "false", "null"] {
+        assert!(
+            vlabels.iter().any(|l| l == want),
+            "value completion missing {want}: {vlabels:?}"
         );
     }
 
@@ -293,6 +312,177 @@ fn hover_completion_formatting_definition() {
 }
 
 #[test]
+fn completion_offers_next_path_segment() {
+    let dir = std::env::temp_dir().join("kvd-lsp-test-next-seg");
+    std::fs::create_dir_all(&dir).unwrap();
+    let uri = format!("file://{}/app.kvd", dir.display());
+    let trailing_uri = format!("file://{}/trailing.kvd", dir.display());
+
+    let mut s = Session::start();
+    s.initialize();
+    s.did_open(&uri, "server:\n  host: \"x\"\n  port: 8080\n");
+    let _ = s.next_diagnostics();
+
+    let root = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":uri},"position":{"line":0,"character":0}}),
+    );
+    assert_eq!(completion_labels(&root), vec!["server"]);
+
+    let nested = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":uri},"position":{"line":2,"character":2}}),
+    );
+    let labels = completion_labels(&nested);
+    for want in ["host", "port"] {
+        assert!(
+            labels.iter().any(|l| l == want),
+            "nested completion missing {want}: {labels:?}"
+        );
+    }
+    assert!(
+        !labels.iter().any(|l| l == "server"),
+        "nested completion repeated the current node: {labels:?}"
+    );
+
+    // A new line at column 0 belongs to the root, not the last nested line.
+    s.did_open(&trailing_uri, "server:\n  host: \"x\"\n");
+    let _ = s.next_diagnostics();
+    let newline = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":trailing_uri},"position":{"line":2,"character":0}}),
+    );
+    assert_eq!(completion_labels(&newline), vec!["server"]);
+
+    // An indented new line stays inside the enclosing node.
+    s.did_open(&trailing_uri, "server:\n  host: \"x\"\n  ");
+    let _ = s.next_diagnostics();
+    let indented = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":trailing_uri},"position":{"line":2,"character":2}}),
+    );
+    assert_eq!(completion_labels(&indented), vec!["host"]);
+
+    // An incomplete list item still completes keys from earlier items.
+    s.did_open(&trailing_uri, "endpoints:\n  - path: \"/health\"\n  - ");
+    let _ = s.next_diagnostics();
+    let item = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":trailing_uri},"position":{"line":2,"character":4}}),
+    );
+    assert_eq!(completion_labels(&item), vec!["path"]);
+
+    s.shutdown();
+}
+
+#[test]
+fn schema_completion_skips_value_positions() {
+    let dir = std::env::temp_dir().join("kvd-lsp-test-schema-values");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("app.kvd"), "port: 8080\n").unwrap();
+    let schema_uri = format!("file://{}/app.schema.kvd", dir.display());
+    let schema_text = "port:\n  type: int\n  description: \"old\"\n  validation:\n    min: 0\n";
+
+    let mut s = Session::start();
+    s.initialize();
+    s.did_open(&schema_uri, schema_text);
+    let _ = s.next_diagnostics();
+
+    let desc = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":2,"character":15}}),
+    );
+    assert!(
+        completion_labels(&desc).is_empty(),
+        "string value position offered completions: {desc}"
+    );
+
+    s.did_open(&schema_uri, "port:\n  type: int\n  optional: \n");
+    let _ = s.next_diagnostics();
+    let opt = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":2,"character":12}}),
+    );
+    let labels = completion_labels(&opt);
+    for want in ["true", "false"] {
+        assert!(
+            labels.iter().any(|l| l == want),
+            "optional value completion missing {want}: {labels:?}"
+        );
+    }
+    for unwanted in ["type", "optional", "validation", "port", "min"] {
+        assert!(
+            !labels.iter().any(|l| l == unwanted),
+            "value position should not offer key {unwanted}: {labels:?}"
+        );
+    }
+
+    s.shutdown();
+}
+
+#[test]
+fn schema_completion_keeps_type_on_incomplete_block() {
+    let dir = std::env::temp_dir().join("kvd-lsp-test-incomplete");
+    std::fs::create_dir_all(&dir).unwrap();
+    let schema_uri = format!("file://{}/app.schema.kvd", dir.display());
+
+    let mut s = Session::start();
+    s.initialize();
+    s.did_open(&schema_uri, "blob:\n  type: bytes\n  validation:\n    ");
+    let _ = s.next_diagnostics();
+
+    let comp = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":4}}),
+    );
+    let labels = completion_labels(&comp);
+    for want in ["min_len", "max_len"] {
+        assert!(
+            labels.iter().any(|l| l == want),
+            "bytes validation completion missing {want}: {labels:?}"
+        );
+    }
+    for unwanted in ["min", "max", "pattern"] {
+        assert!(
+            !labels.iter().any(|l| l == unwanted),
+            "bytes validation completion should not offer {unwanted}: {labels:?}"
+        );
+    }
+
+    s.shutdown();
+}
+
+#[test]
+fn schema_completion_skips_descriptor_keys_in_intermediate_nodes() {
+    let dir = std::env::temp_dir().join("kvd-lsp-test-intermediate");
+    std::fs::create_dir_all(&dir).unwrap();
+    let schema_uri = format!("file://{}/app.schema.kvd", dir.display());
+
+    let mut s = Session::start();
+    s.initialize();
+    s.did_open(&schema_uri, "server:\n  host:\n    type: str\n  ");
+    let _ = s.next_diagnostics();
+
+    let comp = s.request(
+        "textDocument/completion",
+        json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":2}}),
+    );
+    let labels = completion_labels(&comp);
+    assert!(
+        labels.iter().any(|l| l == "host"),
+        "intermediate node completion missing host: {labels:?}"
+    );
+    for unwanted in ["type", "optional", "element", "validation"] {
+        assert!(
+            !labels.iter().any(|l| l == unwanted),
+            "intermediate node should not offer descriptor key {unwanted}: {labels:?}"
+        );
+    }
+
+    s.shutdown();
+}
+
+#[test]
 fn schema_file_descriptor_completion_and_hover() {
     let dir = std::env::temp_dir().join("kvd-lsp-test-schema");
     std::fs::create_dir_all(&dir).unwrap();
@@ -310,18 +500,7 @@ fn schema_file_descriptor_completion_and_hover() {
         "textDocument/completion",
         json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":4}}),
     );
-    let labels: Vec<String> = comp
-        .pointer("/result")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|i| {
-            i.pointer("/label")
-                .and_then(|l| l.as_str())
-                .map(str::to_string)
-        })
-        .collect();
+    let labels = completion_labels(&comp);
     for want in ["min", "max", "exclusive_min", "exclusive_max"] {
         assert!(
             labels.iter().any(|l| l == want),
@@ -340,21 +519,14 @@ fn schema_file_descriptor_completion_and_hover() {
         "textDocument/completion",
         json!({"textDocument":{"uri":schema_uri},"position":{"line":1,"character":8}}),
     );
-    let tlabels: Vec<String> = tcomp
-        .pointer("/result")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|i| {
-            i.pointer("/label")
-                .and_then(|l| l.as_str())
-                .map(str::to_string)
-        })
-        .collect();
+    let tlabels = completion_labels(&tcomp);
     assert!(
         tlabels.iter().any(|l| l == "int"),
         "type completion missing int: {tlabels:?}"
+    );
+    assert!(
+        tlabels.iter().any(|l| l == "bytes"),
+        "type completion missing bytes: {tlabels:?}"
     );
 
     // Hover on a validation key explains it.
@@ -392,18 +564,7 @@ fn schema_deprecated_block_completion_and_hover() {
         "textDocument/completion",
         json!({"textDocument":{"uri":schema_uri},"position":{"line":3,"character":4}}),
     );
-    let labels: Vec<String> = comp
-        .pointer("/result")
-        .and_then(|r| r.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|i| {
-            i.pointer("/label")
-                .and_then(|l| l.as_str())
-                .map(str::to_string)
-        })
-        .collect();
+    let labels = completion_labels(&comp);
     for want in ["reason", "since"] {
         assert!(
             labels.iter().any(|l| l == want),

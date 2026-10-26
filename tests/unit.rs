@@ -1,7 +1,7 @@
 use kvd_lsp::{
     collect_keys, descriptor_keys_for, descriptor_type_at, find_path_line, is_schema_uri,
-    key_before_colon, locate_path, lookup_path, parse_diagnostics, path_at_lines,
-    validation_keys_for, word_at,
+    key_before_colon, locate_path, lookup_path, next_segment, parent_path_at, parse_diagnostics,
+    path_at_lines, validation_keys_for, word_at,
 };
 use tower_lsp::lsp_types::{DiagnosticSeverity, Position, Url};
 
@@ -32,6 +32,31 @@ fn path_at_lines_skips_list_markers() {
     let lines = ["tags:", "- \"a\"", "- \"b\""];
     assert_eq!(path_at_lines(&lines, 0), vec!["tags"]);
     assert_eq!(path_at_lines(&lines, 1), vec!["tags"]);
+}
+
+#[test]
+fn parent_path_at_excludes_current_key() {
+    let lines = ["server:", "  host: \"x\"", "  port: 8080"];
+    assert_eq!(parent_path_at(&lines, 2), vec!["server"]);
+    assert_eq!(parent_path_at(&lines, 1), vec!["server"]);
+}
+
+#[test]
+fn parent_path_at_handles_list_items() {
+    let lines = ["endpoints:", "  - path: \"/health\"", "    method: \"GET\""];
+    assert_eq!(parent_path_at(&lines, 2), vec!["endpoints"]);
+    assert_eq!(parent_path_at(&lines, 1), vec!["endpoints"]);
+}
+
+#[test]
+fn next_segment_matches_current_path() {
+    let current = vec!["server".to_string()];
+    assert_eq!(
+        next_segment("server.host", &current).as_deref(),
+        Some("host")
+    );
+    assert_eq!(next_segment("server", &current), None);
+    assert_eq!(next_segment("other.host", &current), None);
 }
 
 #[test]
@@ -155,6 +180,10 @@ fn validation_keys_are_type_aware() {
         vec!["min_len", "max_len", "pattern"]
     );
     assert_eq!(
+        key_names(&validation_keys_for(Some("bytes"))),
+        vec!["min_len", "max_len"]
+    );
+    assert_eq!(
         key_names(&validation_keys_for(Some("list"))),
         vec!["min_len", "max_len"]
     );
@@ -191,5 +220,23 @@ fn descriptor_type_at_handles_schema_list() {
     assert_eq!(
         descriptor_type_at(text, &["endpoints".to_string()]).as_deref(),
         Some("dict")
+    );
+}
+
+#[test]
+fn descriptor_type_at_ignores_incomplete_blocks() {
+    let text = "blob:\n  type: bytes\n  validation:\n    ";
+    assert_eq!(
+        descriptor_type_at(text, &["blob".to_string()]).as_deref(),
+        Some("bytes")
+    );
+}
+
+#[test]
+fn descriptor_type_at_reads_dotted_descriptor() {
+    let text = "port.type: int\nport.validation:\n  min: 0\n";
+    assert_eq!(
+        descriptor_type_at(text, &["port".to_string()]).as_deref(),
+        Some("int")
     );
 }
