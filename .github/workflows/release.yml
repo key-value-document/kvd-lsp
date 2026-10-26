@@ -9,7 +9,9 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Pinned while ubuntu-latest migrates to 26.04.
+    # https://github.com/actions/runner-images/issues/14748
+    runs-on: ubuntu-26.04
     container:
       image: rust:1-trixie
     steps:
