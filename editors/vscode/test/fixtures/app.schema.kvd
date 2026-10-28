@@ -1,0 +1,6 @@
+port:
+  type: int
+host:
+  type: str
+timeout:
+  type: int
