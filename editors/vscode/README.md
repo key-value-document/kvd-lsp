@@ -6,13 +6,9 @@ config/data format, powered by the `kvd-lsp` language server.
 ## Features
 
 - **Syntax highlighting** — keys and quoted strings in `.kvd` files.
-- **Diagnostics** — parse errors with line/column ranges, plus schema
-  violations when a sibling `<name>.schema.kvd` file exists.
-- **Completion** — builtin type names, scalar keywords, document keys, and
-  type-aware schema keys: `element` only for `list`/`dict`, validation
-  constraints filtered by type, and `reason`/`since` inside `deprecated`.
-- **Hover** — one-line help for builtins, value shapes for document keys,
-  and spec help for schema descriptor, validation, and `deprecated` keys.
+- **Diagnostics** — parse errors with line/column ranges, plus schema violations when a sibling `<name>.schema.kvd` file exists.
+- **Completion** — builtin type names, scalar keywords, document keys, and type-aware schema keys: `element` only for `list`/`dict`, validation constraints filtered by type, and `reason`/`since` inside `deprecated`.
+- **Hover** — one-line help for builtins, value shapes for document keys, and spec help for schema descriptor, validation, and `deprecated` keys.
 - **Formatting** — whole-document rewrite through `kvd-lsp` (`kvd-rs`).
 - **Go to definition** — jump between data keys and their schema keys.
 
@@ -48,7 +44,7 @@ checkout.
 ## Extension settings
 
 | Setting                 | Default                    | Description                                                    |
-| ----------------------- | -------------------------- | -------------------------------------------------------------- |
+|-------------------------|----------------------------|----------------------------------------------------------------|
 | `kvd.serverPath`        | `""`                       | Explicit path for the current host. Overrides everything else. |
 | `kvd.serverPathLinux`   | `~/.cargo/bin/kvd-lsp`     | Path used on Linux when `kvd.serverPath` is empty.             |
 | `kvd.serverPathDarwin`  | `~/.cargo/bin/kvd-lsp`     | Path used on macOS when `kvd.serverPath` is empty.             |
@@ -72,7 +68,7 @@ carry a path per host:
 ## Commands
 
 | Command             | Description                  |
-| ------------------- | ---------------------------- |
+|---------------------|------------------------------|
 | `kvd.restartServer` | Restart the language server. |
 
 ## License
